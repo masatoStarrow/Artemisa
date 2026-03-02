@@ -17,7 +17,7 @@ def _make_client(**kwargs) -> Client:
         "company": "Empresa Test S.A.",
         "email": "test@example.com",
         "phone": None,
-        "status": "activo",
+        "status": "active",
     }
     defaults.update(kwargs)
     return Client(**defaults)
@@ -45,10 +45,10 @@ async def test_list_clients_filter_by_status():
     repo.list_clients.return_value = ([], 0)
 
     use_case = ListClients(client_repository=repo)
-    await use_case.execute(status="activo")
+    await use_case.execute(status="active")
 
     repo.list_clients.assert_called_once_with(
-        status="activo", page=1, page_size=10
+        status="active", page=1, page_size=10
     )
 
 
@@ -67,15 +67,15 @@ async def test_list_clients_pagination():
 
 
 @pytest.mark.asyncio
-async def test_list_clients_filter_by_status_inactivo():
+async def test_list_clients_filter_by_status_inactive():
     repo = AsyncMock()
     repo.list_clients.return_value = ([], 0)
 
     use_case = ListClients(client_repository=repo)
-    await use_case.execute(status="inactivo")
+    await use_case.execute(status="inactive")
 
     repo.list_clients.assert_called_once_with(
-        status="inactivo", page=1, page_size=10
+        status="inactive", page=1, page_size=10
     )
 
 

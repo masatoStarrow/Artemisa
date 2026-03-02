@@ -95,7 +95,7 @@ class ClientPgRepository(ClientRepository):
         if model is None:
             raise ValueError(f"Client {client_id} not found")
 
-        model.status = "inactivo"
+        model.status = "inactive"
         model.updated_at = datetime.now(timezone.utc)
 
         await self._session.flush()

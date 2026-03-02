@@ -13,6 +13,6 @@ class Client:
     company: str
     email: str
     phone: str | None = None
-    status: str = "activo"
+    status: str = "active"
     created_at: datetime | None = None
     updated_at: datetime | None = None

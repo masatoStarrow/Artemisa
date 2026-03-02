@@ -6,5 +6,5 @@ from enum import Enum
 
 
 class ClientStatus(str, Enum):
-    ACTIVO = "activo"
-    INACTIVO = "inactivo"
+    ACTIVE = "active"
+    INACTIVE = "inactive"

@@ -16,7 +16,7 @@ class CreateClientRequest(BaseModel):
     company: str = Field(..., min_length=2, max_length=255, description="Nombre de la empresa")
     email: EmailStr
     phone: str | None = Field(None, max_length=50)
-    status: ClientStatus = ClientStatus.ACTIVO
+    status: ClientStatus = ClientStatus.ACTIVE
 
 
 class UpdateClientRequest(BaseModel):

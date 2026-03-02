@@ -23,7 +23,7 @@ def _make_client(**kwargs) -> Client:
         "company": "Empresa Test S.A.",
         "email": "test@empresa.com",
         "phone": None,
-        "status": "activo",
+        "status": "active",
         "created_at": now,
         "updated_at": now,
     }
@@ -49,7 +49,7 @@ async def test_create_client_success():
     repo.create.assert_called_once()
     assert result.company == "Acme Corp"
     assert result.email == "acme@corp.com"
-    assert result.status == "activo"
+    assert result.status == "active"
 
 
 @pytest.mark.asyncio
@@ -155,18 +155,18 @@ async def test_update_client_same_email_allowed():
 # ── SoftDeleteClient ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_soft_delete_sets_inactivo():
-    existing = _make_client(status="activo")
-    inactivo = _make_client(id=existing.id, status="inactivo")
+async def test_soft_delete_sets_inactive():
+    existing = _make_client(status="active")
+    inactive = _make_client(id=existing.id, status="inactive")
     repo = AsyncMock()
     repo.get_by_id.return_value = existing
-    repo.soft_delete.return_value = inactivo
+    repo.soft_delete.return_value = inactive
 
     use_case = SoftDeleteClient(client_repository=repo)
     result = await use_case.execute(existing.id)
 
     repo.soft_delete.assert_called_once_with(existing.id)
-    assert result.status == "inactivo"
+    assert result.status == "inactive"
 
 
 @pytest.mark.asyncio

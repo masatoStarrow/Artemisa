@@ -11,7 +11,7 @@ class CreateClientDTO:
     company: str
     email: str
     phone: str | None = None
-    status: str = "activo"
+    status: str = "active"
 
 
 @dataclass

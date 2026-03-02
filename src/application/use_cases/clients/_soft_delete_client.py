@@ -1,5 +1,5 @@
 """
-Use case: Soft delete a client (set status=inactivo).
+Use case: Soft delete a client (set status=inactive).
 """
 
 from uuid import UUID
