@@ -42,13 +42,13 @@ async def test_create_client_duplicate_email(client: AsyncClient, seed_users):
     # Create first
     await client.post(
         "/api/v1/clients/",
-        json={"full_name": "C1", "email": "dup@empresa.com"},
+        json={"full_name": "Cliente Uno", "email": "dup@empresa.com"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
     # Duplicate
     response = await client.post(
         "/api/v1/clients/",
-        json={"full_name": "C2", "email": "dup@empresa.com"},
+        json={"full_name": "Cliente Dos", "email": "dup@empresa.com"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
     assert response.status_code == 409
