@@ -1,0 +1,39 @@
+services:
+  users-service:
+    build: .
+    container_name: artemisa-users-service
+    ports:
+      - "8001:8001"
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - default
+      - crm_network
+
+  db:
+    image: postgres:15
+    container_name: artemisa-users-db
+    environment:
+      POSTGRES_DB: crm_users_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - users_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  users_postgres_data:
+
+networks:
+  crm_network:
+    external: true
