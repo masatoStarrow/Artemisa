@@ -16,7 +16,7 @@ from src.application.use_cases.clients.get_client import GetClient
 from src.application.use_cases.clients.list_clients import ListClients
 from src.application.use_cases.clients.create_client import CreateClient
 from src.application.use_cases.clients.update_client import UpdateClient
-from src.application.use_cases.clients.assign_agent import AssignAgent
+from src.application.use_cases.clients._soft_delete_client import SoftDeleteClient
 
 
 # ── User use case factories ──────────────────────────────────────────────
@@ -59,15 +59,5 @@ def get_update_client_use_case(db: AsyncSession) -> UpdateClient:
     return UpdateClient(client_repository=ClientPgRepository(db))
 
 
-def get_assign_agent_use_case(db: AsyncSession) -> AssignAgent:
-    return AssignAgent(
-        client_repository=ClientPgRepository(db),
-        user_repository=UserPgRepository(db),
-    )
-
-
-def get_soft_delete_client_use_case(db: AsyncSession) -> GetClient:
-    """Returns a use case that can soft-delete a client (reused from repo)."""
-    # We use a thin wrapper since soft_delete is in the repository
-    from src.application.use_cases.clients._soft_delete_client import SoftDeleteClient
+def get_soft_delete_client_use_case(db: AsyncSession) -> SoftDeleteClient:
     return SoftDeleteClient(client_repository=ClientPgRepository(db))

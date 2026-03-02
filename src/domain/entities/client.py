@@ -10,12 +10,9 @@ from uuid import UUID
 @dataclass
 class Client:
     id: UUID
-    full_name: str
+    company: str
     email: str
     phone: str | None = None
-    company: str | None = None
-    status: str = "prospecto"
-    assigned_agent_id: UUID | None = None
-    notes: str | None = None
+    status: str = "activo"
     created_at: datetime | None = None
     updated_at: datetime | None = None

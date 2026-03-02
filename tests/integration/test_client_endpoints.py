@@ -1,5 +1,6 @@
 """
 Integration tests: CRUD completo de clientes via HTTP endpoints.
+Modelo: id, company, email, phone, status (activo/inactivo), created_at, updated_at.
 """
 
 import uuid
@@ -11,155 +12,323 @@ from tests.conftest import (
     INTERNAL_HEADERS_ADMIN,
     INTERNAL_HEADERS_SOPORTE,
     INTERNAL_HEADERS_COMERCIAL,
-    ADMIN_ID,
-    SOPORTE_ID,
-    COMERCIAL_ID,
 )
 
+# ── Helper ────────────────────────────────────────────────────────────────────
+
+def _client_payload(**overrides) -> dict:
+    base = {
+        "company": "Empresa Demo S.A.",
+        "email": f"demo-{uuid.uuid4().hex[:8]}@empresa.com",
+        "phone": "+573001234567",
+        "status": "activo",
+    }
+    base.update(overrides)
+    return base
+
+
+# ── POST /api/v1/clients/ ─────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_create_client_success(client: AsyncClient, seed_users):
-    response = await client.post(
-        "/api/v1/clients/",
-        json={
-            "full_name": "Cliente Nuevo",
-            "email": "cliente@empresa.com",
-            "phone": "+57300123456",
-            "company": "Empresa S.A.",
-            "status": "prospecto",
-        },
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
+async def test_create_client_success(client: AsyncClient):
+    payload = _client_payload(company="Acme Corp", email="acme@corp.com")
+    response = await client.post("/api/v1/clients/", json=payload, headers=INTERNAL_HEADERS_ADMIN)
+
     assert response.status_code == 201
     body = response.json()
     assert body["success"] is True
-    assert body["data"]["email"] == "cliente@empresa.com"
-    assert body["data"]["status"] == "prospecto"
+    data = body["data"]
+    assert data["company"] == "Acme Corp"
+    assert data["email"] == "acme@corp.com"
+    assert data["status"] == "activo"
+    assert data["phone"] == "+573001234567"
+    assert "id" in data
+    assert "created_at" in data
+    assert "updated_at" in data
 
 
 @pytest.mark.asyncio
-async def test_create_client_duplicate_email(client: AsyncClient, seed_users):
-    # Create first
-    await client.post(
-        "/api/v1/clients/",
-        json={"full_name": "Cliente Uno", "email": "dup@empresa.com"},
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
-    # Duplicate
+async def test_create_client_minimal_fields(client: AsyncClient):
+    """Solo company y email son requeridos."""
     response = await client.post(
         "/api/v1/clients/",
-        json={"full_name": "Cliente Dos", "email": "dup@empresa.com"},
+        json={"company": "Minimal S.A.", "email": "minimal@co.com"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert data["phone"] is None
+    assert data["status"] == "activo"
+
+
+@pytest.mark.asyncio
+async def test_create_client_default_status_activo(client: AsyncClient):
+    response = await client.post(
+        "/api/v1/clients/",
+        json={"company": "Status Co", "email": "status@co.com"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    assert response.status_code == 201
+    assert response.json()["data"]["status"] == "activo"
+
+
+@pytest.mark.asyncio
+async def test_create_client_inactivo_status(client: AsyncClient):
+    response = await client.post(
+        "/api/v1/clients/",
+        json={"company": "Inactiva S.A.", "email": "inact@co.com", "status": "inactivo"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    assert response.status_code == 201
+    assert response.json()["data"]["status"] == "inactivo"
+
+
+@pytest.mark.asyncio
+async def test_create_client_duplicate_email_returns_409(client: AsyncClient):
+    payload = _client_payload(email="dup@empresa.com")
+    await client.post("/api/v1/clients/", json=payload, headers=INTERNAL_HEADERS_ADMIN)
+    response = await client.post("/api/v1/clients/", json=payload, headers=INTERNAL_HEADERS_ADMIN)
+
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "EMAIL_ALREADY_EXISTS"
 
 
 @pytest.mark.asyncio
-async def test_list_clients_filter_by_status(client: AsyncClient, seed_users):
-    # Create one active client
-    await client.post(
+async def test_create_client_missing_company_returns_422(client: AsyncClient):
+    response = await client.post(
         "/api/v1/clients/",
-        json={"full_name": "Activo", "email": "activo@e.com", "status": "activo"},
+        json={"email": "nocompany@co.com"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
-    # Create one prospecto client
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_client_missing_email_returns_422(client: AsyncClient):
+    response = await client.post(
+        "/api/v1/clients/",
+        json={"company": "No Email S.A."},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_client_invalid_email_returns_422(client: AsyncClient):
+    response = await client.post(
+        "/api/v1/clients/",
+        json={"company": "Bad Email Co", "email": "not-an-email"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_client_invalid_status_returns_422(client: AsyncClient):
+    """prospecto is no longer a valid status."""
+    response = await client.post(
+        "/api/v1/clients/",
+        json={"company": "Bad Status Co", "email": "bad@co.com", "status": "prospecto"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_client_all_roles_can_create(client: AsyncClient):
+    for i, headers in enumerate(
+        [INTERNAL_HEADERS_ADMIN, INTERNAL_HEADERS_SOPORTE, INTERNAL_HEADERS_COMERCIAL]
+    ):
+        response = await client.post(
+            "/api/v1/clients/",
+            json={"company": f"Role Co {i}", "email": f"role{i}@co.com"},
+            headers=headers,
+        )
+        assert response.status_code == 201
+
+
+# ── GET /api/v1/clients/ ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_clients_empty(client: AsyncClient):
+    response = await client.get("/api/v1/clients/", headers=INTERNAL_HEADERS_ADMIN)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["items"] == []
+    assert body["data"]["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_list_clients_returns_created(client: AsyncClient):
     await client.post(
         "/api/v1/clients/",
-        json={"full_name": "Prospecto", "email": "prosp@e.com", "status": "prospecto"},
+        json={"company": "Lista Co", "email": "lista@co.com"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    response = await client.get("/api/v1/clients/", headers=INTERNAL_HEADERS_ADMIN)
+    assert response.status_code == 200
+    items = response.json()["data"]["items"]
+    assert len(items) == 1
+    assert items[0]["company"] == "Lista Co"
+
+
+@pytest.mark.asyncio
+async def test_list_clients_filter_by_status_activo(client: AsyncClient):
+    await client.post(
+        "/api/v1/clients/",
+        json={"company": "Activa Co", "email": "activa@co.com", "status": "activo"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    await client.post(
+        "/api/v1/clients/",
+        json={"company": "Inactiva Co", "email": "inactiva@co.com", "status": "inactivo"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
 
-    response = await client.get(
-        "/api/v1/clients/?status=activo",
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
+    response = await client.get("/api/v1/clients/?status=activo", headers=INTERNAL_HEADERS_ADMIN)
     assert response.status_code == 200
     items = response.json()["data"]["items"]
+    assert len(items) == 1
     assert all(c["status"] == "activo" for c in items)
 
 
 @pytest.mark.asyncio
-async def test_list_clients_by_agent(client: AsyncClient, seed_users):
-    # Create client assigned to soporte
+async def test_list_clients_filter_by_status_inactivo(client: AsyncClient):
     await client.post(
         "/api/v1/clients/",
-        json={
-            "full_name": "Assigned Client",
-            "email": "assigned@e.com",
-            "assigned_agent_id": str(SOPORTE_ID),
-        },
+        json={"company": "A Co", "email": "a@co.com", "status": "activo"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    await client.post(
+        "/api/v1/clients/",
+        json={"company": "I Co", "email": "i@co.com", "status": "inactivo"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
 
-    response = await client.get(
-        f"/api/v1/clients/agent/{SOPORTE_ID}",
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
+    response = await client.get("/api/v1/clients/?status=inactivo", headers=INTERNAL_HEADERS_ADMIN)
     assert response.status_code == 200
     items = response.json()["data"]["items"]
-    assert len(items) >= 1
-    assert items[0]["assigned_agent_id"] == str(SOPORTE_ID)
+    assert all(c["status"] == "inactivo" for c in items)
 
 
 @pytest.mark.asyncio
-async def test_get_client_by_id(client: AsyncClient, seed_users):
-    # Create a client
-    create_resp = await client.post(
-        "/api/v1/clients/",
-        json={"full_name": "Get Me", "email": "getme@e.com"},
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
-    client_id = create_resp.json()["data"]["id"]
+async def test_list_clients_pagination(client: AsyncClient):
+    for i in range(5):
+        await client.post(
+            "/api/v1/clients/",
+            json={"company": f"Co {i}", "email": f"pag{i}@co.com"},
+            headers=INTERNAL_HEADERS_ADMIN,
+        )
 
     response = await client.get(
-        f"/api/v1/clients/{client_id}",
-        headers=INTERNAL_HEADERS_ADMIN,
+        "/api/v1/clients/?page=1&page_size=2", headers=INTERNAL_HEADERS_ADMIN
     )
     assert response.status_code == 200
-    assert response.json()["data"]["full_name"] == "Get Me"
+    d = response.json()["data"]
+    assert d["total"] == 5
+    assert len(d["items"]) == 2
+    assert d["pages"] == 3
 
 
 @pytest.mark.asyncio
-async def test_get_client_not_found(client: AsyncClient, seed_users):
-    fake_id = uuid.uuid4()
-    response = await client.get(
-        f"/api/v1/clients/{fake_id}",
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
-    assert response.status_code == 404
+async def test_list_clients_all_roles_allowed(client: AsyncClient):
+    for headers in [INTERNAL_HEADERS_ADMIN, INTERNAL_HEADERS_SOPORTE, INTERNAL_HEADERS_COMERCIAL]:
+        r = await client.get("/api/v1/clients/", headers=headers)
+        assert r.status_code == 200
 
+
+# ── GET /api/v1/clients/{id} ──────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_update_client(client: AsyncClient, seed_users):
-    create_resp = await client.post(
+async def test_get_client_by_id_success(client: AsyncClient):
+    create_r = await client.post(
         "/api/v1/clients/",
-        json={"full_name": "Original", "email": "original@e.com"},
+        json={"company": "Get Me Co", "email": "getme@co.com"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
-    client_id = create_resp.json()["data"]["id"]
+    client_id = create_r.json()["data"]["id"]
+
+    response = await client.get(f"/api/v1/clients/{client_id}", headers=INTERNAL_HEADERS_ADMIN)
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["id"] == client_id
+    assert data["company"] == "Get Me Co"
+    assert data["email"] == "getme@co.com"
+
+
+@pytest.mark.asyncio
+async def test_get_client_not_found_returns_404(client: AsyncClient):
+    fake_id = uuid.uuid4()
+    response = await client.get(f"/api/v1/clients/{fake_id}", headers=INTERNAL_HEADERS_ADMIN)
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "CLIENT_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_get_client_all_roles_allowed(client: AsyncClient):
+    create_r = await client.post(
+        "/api/v1/clients/",
+        json={"company": "Role Test Co", "email": "roletest@co.com"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    client_id = create_r.json()["data"]["id"]
+
+    for headers in [INTERNAL_HEADERS_ADMIN, INTERNAL_HEADERS_SOPORTE, INTERNAL_HEADERS_COMERCIAL]:
+        r = await client.get(f"/api/v1/clients/{client_id}", headers=headers)
+        assert r.status_code == 200
+
+
+# ── PUT /api/v1/clients/{id} ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_update_client_company(client: AsyncClient):
+    create_r = await client.post(
+        "/api/v1/clients/",
+        json={"company": "Original Co", "email": "upd@co.com"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    client_id = create_r.json()["data"]["id"]
 
     response = await client.put(
         f"/api/v1/clients/{client_id}",
-        json={"full_name": "Updated Name", "company": "New Co"},
+        json={"company": "Updated Co"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
     assert response.status_code == 200
-    assert response.json()["data"]["full_name"] == "Updated Name"
-    assert response.json()["data"]["company"] == "New Co"
+    assert response.json()["data"]["company"] == "Updated Co"
 
 
 @pytest.mark.asyncio
-async def test_soft_delete_client(client: AsyncClient, seed_users):
-    create_resp = await client.post(
+async def test_update_client_phone(client: AsyncClient):
+    create_r = await client.post(
         "/api/v1/clients/",
-        json={"full_name": "To Delete", "email": "delete@e.com", "status": "activo"},
+        json={"company": "Phone Co", "email": "phone@co.com"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
-    client_id = create_resp.json()["data"]["id"]
+    client_id = create_r.json()["data"]["id"]
 
-    response = await client.delete(
+    response = await client.put(
         f"/api/v1/clients/{client_id}",
+        json={"phone": "+573009876543"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["phone"] == "+573009876543"
+
+
+@pytest.mark.asyncio
+async def test_update_client_status_to_inactivo(client: AsyncClient):
+    create_r = await client.post(
+        "/api/v1/clients/",
+        json={"company": "Status Co", "email": "statupd@co.com", "status": "activo"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    client_id = create_r.json()["data"]["id"]
+
+    response = await client.put(
+        f"/api/v1/clients/{client_id}",
+        json={"status": "inactivo"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
     assert response.status_code == 200
@@ -167,72 +336,104 @@ async def test_soft_delete_client(client: AsyncClient, seed_users):
 
 
 @pytest.mark.asyncio
-async def test_assign_agent_success(client: AsyncClient, seed_users):
-    create_resp = await client.post(
-        "/api/v1/clients/",
-        json={"full_name": "AssignTest", "email": "assign@e.com"},
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
-    client_id = create_resp.json()["data"]["id"]
-
-    response = await client.patch(
-        f"/api/v1/clients/{client_id}/assign",
-        json={"agent_id": str(SOPORTE_ID)},
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
-    assert response.status_code == 200
-    assert response.json()["data"]["assigned_agent_id"] == str(SOPORTE_ID)
-
-
-@pytest.mark.asyncio
-async def test_assign_nonexistent_agent(client: AsyncClient, seed_users):
-    create_resp = await client.post(
-        "/api/v1/clients/",
-        json={"full_name": "NoAgent", "email": "noagent@e.com"},
-        headers=INTERNAL_HEADERS_ADMIN,
-    )
-    client_id = create_resp.json()["data"]["id"]
-
-    fake_agent = uuid.uuid4()
-    response = await client.patch(
-        f"/api/v1/clients/{client_id}/assign",
-        json={"agent_id": str(fake_agent)},
+async def test_update_client_not_found_returns_404(client: AsyncClient):
+    fake_id = uuid.uuid4()
+    response = await client.put(
+        f"/api/v1/clients/{fake_id}",
+        json={"company": "Ghost Co"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
 
 @pytest.mark.asyncio
-async def test_comercial_only_sees_own_clients(client: AsyncClient, seed_users):
-    """Comercial should only see clients assigned to them."""
-    # Create client assigned to comercial
+async def test_update_client_duplicate_email_returns_409(client: AsyncClient):
     await client.post(
         "/api/v1/clients/",
-        json={
-            "full_name": "My Client",
-            "email": "my@e.com",
-            "assigned_agent_id": str(COMERCIAL_ID),
-        },
+        json={"company": "Co A", "email": "taken@co.com"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
-    # Create client assigned to someone else
-    await client.post(
+    create_r = await client.post(
         "/api/v1/clients/",
-        json={
-            "full_name": "Not Mine",
-            "email": "notmine@e.com",
-            "assigned_agent_id": str(SOPORTE_ID),
-        },
+        json={"company": "Co B", "email": "owner@co.com"},
         headers=INTERNAL_HEADERS_ADMIN,
     )
+    client_id = create_r.json()["data"]["id"]
 
-    response = await client.get(
+    response = await client.put(
+        f"/api/v1/clients/{client_id}",
+        json={"email": "taken@co.com"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_update_client_all_roles_allowed_at_service_level(client: AsyncClient):
+    """Artemisa no enforza roles — la autorizacion la hace Atenea."""
+    create_r = await client.post(
         "/api/v1/clients/",
-        headers=INTERNAL_HEADERS_COMERCIAL,
+        json={"company": "Role Test Edit Co", "email": "roleedit@co.com"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    client_id = create_r.json()["data"]["id"]
+
+    for headers in [INTERNAL_HEADERS_ADMIN, INTERNAL_HEADERS_SOPORTE, INTERNAL_HEADERS_COMERCIAL]:
+        r = await client.put(
+            f"/api/v1/clients/{client_id}",
+            json={"company": "Updated by any role"},
+            headers=headers,
+        )
+        assert r.status_code == 200
+
+
+# ── DELETE /api/v1/clients/{id} ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_deactivate_client_sets_inactivo(client: AsyncClient):
+    create_r = await client.post(
+        "/api/v1/clients/",
+        json={"company": "To Deactivate", "email": "deact@co.com", "status": "activo"},
+        headers=INTERNAL_HEADERS_ADMIN,
+    )
+    client_id = create_r.json()["data"]["id"]
+
+    response = await client.delete(
+        f"/api/v1/clients/{client_id}", headers=INTERNAL_HEADERS_ADMIN
     )
     assert response.status_code == 200
-    items = response.json()["data"]["items"]
-    # All should be assigned to comercial
-    for item in items:
-        assert item["assigned_agent_id"] == str(COMERCIAL_ID)
+    assert response.json()["data"]["status"] == "inactivo"
+
+
+@pytest.mark.asyncio
+async def test_deactivate_client_not_found_returns_404(client: AsyncClient):
+    fake_id = uuid.uuid4()
+    response = await client.delete(
+        f"/api/v1/clients/{fake_id}", headers=INTERNAL_HEADERS_ADMIN
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deactivate_client_all_roles_allowed_at_service_level(client: AsyncClient):
+    """Artemisa no enforza roles — la autorizacion la hace Atenea."""
+    for i, headers in enumerate(
+        [INTERNAL_HEADERS_ADMIN, INTERNAL_HEADERS_SOPORTE, INTERNAL_HEADERS_COMERCIAL]
+    ):
+        create_r = await client.post(
+            "/api/v1/clients/",
+            json={"company": f"Del Co {i}", "email": f"del{i}@co.com"},
+            headers=INTERNAL_HEADERS_ADMIN,
+        )
+        client_id = create_r.json()["data"]["id"]
+        r = await client.delete(f"/api/v1/clients/{client_id}", headers=headers)
+        assert r.status_code == 200
+        assert r.json()["data"]["status"] == "inactivo"
+
+
+# ── Missing auth headers ───────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_request_without_headers_returns_422(client: AsyncClient):
+    response = await client.get("/api/v1/clients/")
+    assert response.status_code == 422

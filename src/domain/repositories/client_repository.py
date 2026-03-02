@@ -23,22 +23,10 @@ class ClientRepository(ABC):
         self,
         *,
         status: str | None = None,
-        assigned_agent_id: UUID | None = None,
-        company: str | None = None,
         page: int = 1,
         page_size: int = 10,
     ) -> tuple[list[Client], int]:
         """Return (items, total_count)."""
-        ...
-
-    @abstractmethod
-    async def list_by_agent(
-        self,
-        agent_id: UUID,
-        *,
-        page: int = 1,
-        page_size: int = 10,
-    ) -> tuple[list[Client], int]:
         ...
 
     @abstractmethod
@@ -47,10 +35,6 @@ class ClientRepository(ABC):
 
     @abstractmethod
     async def update(self, client: Client) -> Client:
-        ...
-
-    @abstractmethod
-    async def assign_agent(self, client_id: UUID, agent_id: UUID) -> Client:
         ...
 
     @abstractmethod

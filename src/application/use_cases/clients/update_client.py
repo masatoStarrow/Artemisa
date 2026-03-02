@@ -25,15 +25,11 @@ class UpdateClient:
                 raise EmailAlreadyExistsError("Ya existe un cliente con ese email")
             client.email = dto.email.strip().lower()
 
-        if dto.full_name is not None:
-            client.full_name = dto.full_name.strip()
+        if dto.company is not None:
+            client.company = dto.company.strip()
         if dto.phone is not None:
             client.phone = dto.phone
-        if dto.company is not None:
-            client.company = dto.company
         if dto.status is not None:
             client.status = dto.status
-        if dto.notes is not None:
-            client.notes = dto.notes
 
         return await self._repo.update(client)

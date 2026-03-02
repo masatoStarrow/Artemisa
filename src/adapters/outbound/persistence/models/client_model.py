@@ -5,7 +5,7 @@ SQLAlchemy ORM model: clients table.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Index, Uuid, text
+from sqlalchemy import String, DateTime, Index, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.infrastructure.database.connection import Base
@@ -19,7 +19,7 @@ class ClientModel(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    full_name: Mapped[str] = mapped_column(
+    company: Mapped[str] = mapped_column(
         String(255), nullable=False
     )
     email: Mapped[str] = mapped_column(
@@ -28,19 +28,8 @@ class ClientModel(Base):
     phone: Mapped[str | None] = mapped_column(
         String(50), nullable=True
     )
-    company: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
-    )
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="prospecto", server_default=text("'prospecto'")
-    )
-    assigned_agent_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid,
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    notes: Mapped[str | None] = mapped_column(
-        Text, nullable=True
+        String(20), nullable=False, default="activo", server_default=text("'activo'")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -57,10 +46,8 @@ class ClientModel(Base):
     )
 
     __table_args__ = (
-        Index("idx_clients_assigned_agent", "assigned_agent_id"),
         Index("idx_clients_status", "status"),
-        Index("idx_clients_company", "company"),
     )
 
     def __repr__(self) -> str:
-        return f"<ClientModel {self.full_name} ({self.status})>"
+        return f"<ClientModel {self.company} ({self.status})>"

@@ -21,12 +21,9 @@ class CreateClient:
 
         client = Client(
             id=uuid.uuid4(),
-            full_name=dto.full_name.strip(),
+            company=dto.company.strip(),
             email=dto.email.strip().lower(),
             phone=dto.phone,
-            company=dto.company,
             status=dto.status,
-            assigned_agent_id=dto.assigned_agent_id,
-            notes=dto.notes,
         )
         return await self._repo.create(client)

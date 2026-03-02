@@ -14,13 +14,10 @@ from src.domain.entities.client import Client
 def _make_client(**kwargs) -> Client:
     defaults = {
         "id": uuid.uuid4(),
-        "full_name": "Test Client",
+        "company": "Empresa Test S.A.",
         "email": "test@example.com",
         "phone": None,
-        "company": None,
         "status": "activo",
-        "assigned_agent_id": None,
-        "notes": None,
     }
     defaults.update(kwargs)
     return Client(**defaults)
@@ -28,7 +25,7 @@ def _make_client(**kwargs) -> Client:
 
 @pytest.mark.asyncio
 async def test_list_clients_no_filters():
-    clients = [_make_client(full_name=f"Client {i}") for i in range(3)]
+    clients = [_make_client(company=f"Company {i}") for i in range(3)]
     repo = AsyncMock()
     repo.list_clients.return_value = (clients, 3)
 
@@ -38,7 +35,7 @@ async def test_list_clients_no_filters():
     assert total == 3
     assert len(items) == 3
     repo.list_clients.assert_called_once_with(
-        status=None, assigned_agent_id=None, company=None, page=1, page_size=10
+        status=None, page=1, page_size=10
     )
 
 
@@ -51,7 +48,7 @@ async def test_list_clients_filter_by_status():
     await use_case.execute(status="activo")
 
     repo.list_clients.assert_called_once_with(
-        status="activo", assigned_agent_id=None, company=None, page=1, page_size=10
+        status="activo", page=1, page_size=10
     )
 
 
@@ -65,19 +62,35 @@ async def test_list_clients_pagination():
 
     assert total == 50
     repo.list_clients.assert_called_once_with(
-        status=None, assigned_agent_id=None, company=None, page=3, page_size=5
+        status=None, page=3, page_size=5
     )
 
 
 @pytest.mark.asyncio
-async def test_list_clients_filter_by_agent():
-    agent_id = uuid.uuid4()
+async def test_list_clients_filter_by_status_inactivo():
     repo = AsyncMock()
     repo.list_clients.return_value = ([], 0)
 
     use_case = ListClients(client_repository=repo)
-    await use_case.execute(assigned_agent_id=agent_id)
+    await use_case.execute(status="inactivo")
 
     repo.list_clients.assert_called_once_with(
-        status=None, assigned_agent_id=agent_id, company=None, page=1, page_size=10
+        status="inactivo", page=1, page_size=10
     )
+
+
+@pytest.mark.asyncio
+async def test_list_clients_returns_clients():
+    clients = [
+        _make_client(email="a@b.com", company="Alfa S.A."),
+        _make_client(email="c@d.com", company="Beta Corp"),
+    ]
+    repo = AsyncMock()
+    repo.list_clients.return_value = (clients, 2)
+
+    use_case = ListClients(client_repository=repo)
+    items, total = await use_case.execute()
+
+    assert total == 2
+    assert items[0].company == "Alfa S.A."
+    assert items[1].company == "Beta Corp"
