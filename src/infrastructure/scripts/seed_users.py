@@ -1,63 +1,20 @@
 """
-Seed script: populate initial users synchronized with the Gateway.
-Run with: python -m src.infrastructure.scripts.seed_users
+DEPRECATED — Este script ya no debe usarse.
+
+El seed de usuarios ahora se ejecuta exclusivamente desde el API Gateway (Atenea)
+mediante el comando de management:
+
+    sudo docker-compose exec gateway python manage.py seed_users
+
+Ese comando usa el flujo dual-write (CreateUserGateway) para crear cada usuario
+en la Gateway DB (con password hash) Y en este servicio (mismo UUID, sin password),
+garantizando consistencia de UUIDs entre ambas bases de datos.
+
+Razón del cambio: si se ejecutaba este script directamente, los UUIDs generados
+aquí diferían de los generados en Atenea, rompiendo el vínculo entre servicios.
 """
 
-import asyncio
-import uuid
-
-from src.infrastructure.database.connection import AsyncSessionLocal, engine, Base
-from src.adapters.outbound.persistence.models.user_model import UserModel
-
-# Same users as the Gateway's seed_users command
-SEED_USERS = [
-    {
-        "email": "admin@crm.com",
-        "full_name": "Administrador CRM",
-        "role": "admin",
-    },
-    {
-        "email": "soporte@crm.com",
-        "full_name": "Agente Soporte",
-        "role": "soporte",
-    },
-    {
-        "email": "comercial@crm.com",
-        "full_name": "Agente Comercial",
-        "role": "comercial",
-    },
-]
-
-
-async def seed():
-    from sqlalchemy import select
-
-    async with AsyncSessionLocal() as session:
-        for user_data in SEED_USERS:
-            stmt = select(UserModel).where(UserModel.email == user_data["email"])
-            result = await session.execute(stmt)
-            existing = result.scalar_one_or_none()
-
-            if existing:
-                print(f"User already exists: {user_data['email']}")
-                continue
-
-            model = UserModel(
-                id=uuid.uuid4(),
-                email=user_data["email"],
-                full_name=user_data["full_name"],
-                role=user_data["role"],
-            )
-            session.add(model)
-            print(f"Created user: {user_data['email']} ({user_data['role']})")
-
-        await session.commit()
-    print("Seed completed!")
-
-
-def main():
-    asyncio.run(seed())
-
-
-if __name__ == "__main__":
-    main()
+raise DeprecationWarning(
+    "seed_users de Artemisa está deprecado. "
+    "Usar: sudo docker-compose exec gateway python manage.py seed_users"
+)

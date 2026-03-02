@@ -84,8 +84,8 @@ Se usa **Arquitectura Hexagonal (Ports & Adapters)**. El dominio (lógica de neg
 │   - ListUsers       │     │  Alembic migrations              │
 │   - CreateUser      │     │  DI Container (factories)        │
 │   - UpdateUser      │     │  Logging (structlog + JSON)      │
-│   - DeactivateUser  │     │  Seed script                     │
-│   - GetClient       │     └──────────────────────────────────┘
+│   - DeactivateUser  │     └──────────────────────────────────┘
+│   - GetClient       │
 │   - ListClients     │
 │   - CreateClient    │
 │   - UpdateClient    │
@@ -146,15 +146,17 @@ cp .env.example .env
 # 4. Construir y levantar los contenedores
 sudo docker-compose up --build -d
 
-# 5. Generar la migración inicial de Alembic
-sudo docker-compose exec users-service alembic revision --autogenerate -m "initial"
-
-# 6. Aplicar migraciones (crear tablas en la BD)
+# 5. Aplicar migraciones (crear tablas en la BD)
 sudo docker-compose exec users-service alembic upgrade head
-
-# 7. Crear usuarios iniciales de prueba (sincronizados con el Gateway)
-sudo docker-compose exec users-service python -m src.infrastructure.scripts.seed_users
 ```
+
+> **Los usuarios seed se crean desde Atenea**, no desde este servicio.
+> Una vez que Atenea esté corriendo y migrada, ejecutá allí:
+> ```bash
+> sudo docker-compose exec gateway python manage.py seed_users
+> ```
+> Esto usa el flujo dual-write: crea cada usuario en Gateway DB (con password) **y** en
+> Artemisa (mismo UUID, sin password) con rollback automático si Artemisa falla.
 
 ### Ejecuciones posteriores (ya todo está creado)
 
@@ -212,9 +214,11 @@ curl http://localhost:8001/api/v1/health/
 
 ### Comando Seed (datos iniciales)
 
-| Comando | Qué hace | ¿Cuándo ejecutarlo? |
-|---|---|---|
-| `sudo docker-compose exec users-service python -m src.infrastructure.scripts.seed_users` | Crea 3 usuarios iniciales (admin, soporte, comercial) sincronizados con el Gateway | **Una sola vez** después del primer `alembic upgrade head` |
+> ⚠️ **Este servicio ya no tiene un seed propio.** Los usuarios se crean únicamente desde el
+> API Gateway (Atenea) mediante el comando `python manage.py seed_users`, que usa el flujo
+> **dual-write**: crea cada usuario en Gateway DB y en este servicio con el **mismo UUID**.
+>
+> Ver la documentación de Atenea para más detalles.
 
 ### Resumen: ¿Qué debo correr siempre?
 
@@ -223,14 +227,13 @@ Primera vez:                                    Cada vez que trabajo:
 ────────────────────────────────               ─────────────────────
 docker network create crm_network              docker-compose up -d
 docker-compose up --build -d                    (nada más)
-alembic revision --autogenerate -m "initial"
 alembic upgrade head
-python -m src.infrastructure.scripts.seed_users
+[seed desde Atenea: manage.py seed_users]
 ```
 
-**`revision`, `upgrade` y `seed` son comandos de UNA SOLA VEZ.** Los datos persisten en el volumen Docker `users_postgres_data`. Solo necesitás volver a ejecutarlos si:
-- Borrás los volúmenes (`docker-compose down -v`) → repetir los 3 comandos
-- Agregás o modificás modelos → solo `revision --autogenerate` + `upgrade head`
+**`upgrade` es un comando de UNA SOLA VEZ.** Los datos persisten en el volumen Docker `users_postgres_data`. Solo necesitás volver a ejecutarlo si:
+- Borrás los volúmenes (`docker-compose down -v`) → repetir `upgrade head`
+- Agregás o modificás modelos → `revision --autogenerate` + `upgrade head`
 
 ---
 
@@ -1102,7 +1105,7 @@ Artemisa/
 │       ├── logging/
 │       │   └── setup.py                             # structlog config (Console local, JSON prod)
 │       └── scripts/
-│           └── seed_users.py                        # Seed: admin, soporte, comercial
+│           └── seed_users.py                        # DEPRECATED: usar 'manage.py seed_users' desde Atenea
 │
 ├── tests/
 │   ├── conftest.py                                  # Fixtures: SQLite in-memory, seed, headers
@@ -1149,9 +1152,11 @@ async def create_user(body: CreateUserRequest, db: AsyncSession = Depends(get_db
     user = await use_case.execute(dto)
 ```
 
-### Usuarios seed (sincronizados con el Gateway)
+### Usuarios seed (gestionados desde el API Gateway)
 
-El script `seed_users.py` crea 3 usuarios que coinciden con los del Gateway (Atenea):
+Los usuarios seed **no se crean desde este servicio**. Se crean desde Atenea con el
+comando `python manage.py seed_users`, que usa el flujo dual-write para garantizar
+que ambas bases de datos tengan los mismos UUIDs:
 
 | Email | Nombre | Rol |
 |---|---|---|
@@ -1159,7 +1164,7 @@ El script `seed_users.py` crea 3 usuarios que coinciden con los del Gateway (Ate
 | `soporte@crm.com` | Agente Soporte | soporte |
 | `comercial@crm.com` | Agente Comercial | comercial |
 
-El script es **idempotente**: si el usuario ya existe (por email), no lo crea de nuevo.
+> Ver la sección correspondiente en la documentación de Atenea.
 
 ---
 
