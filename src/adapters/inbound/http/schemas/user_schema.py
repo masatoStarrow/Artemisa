@@ -5,9 +5,10 @@ Pydantic v2 schemas for User request/response.
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from src.domain.value_objects.user_role import UserRole
+from ..validators import validate_non_empty_name
 
 
 # ── Request schemas ──────────────────────────────────────────────────────
@@ -17,12 +18,24 @@ class CreateUserRequest(BaseModel):
     email: EmailStr
     full_name: str = Field(..., min_length=1, max_length=255)
     role: UserRole
+    
+    @field_validator('full_name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return validate_non_empty_name(v)
 
 
 class UpdateUserRequest(BaseModel):
     full_name: str | None = Field(None, min_length=1, max_length=255)
     role: UserRole | None = None
     is_active: bool | None = None
+    
+    @field_validator('full_name')
+    @classmethod
+    def validate_name(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_non_empty_name(v)
+        return v
 
 
 # ── Response schemas ─────────────────────────────────────────────────────
