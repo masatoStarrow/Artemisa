@@ -4,7 +4,7 @@
 
 Eres el **microservicio de usuarios** de un CRM empresarial en migración a AWS. Este servicio es responsable exclusivamente de la gestión del perfil de usuarios del sistema: crear, consultar, actualizar y desactivar cuentas. **No emite tokens JWT** — eso es responsabilidad del API Gateway. Recibe todas sus peticiones desde el Gateway, que inyecta headers internos (`X-User-Id`, `X-User-Role`, `X-Request-Id`) en lugar de tokens.
 
-Este servicio también gestiona la **tabla de clientes del CRM**, ya que los clientes son una entidad relacionada con los usuarios (agentes) que los atienden.
+Este servicio también gestiona la **tabla de clientes del CRM** (empresas/contactos comerciales). Los clientes solo viven en este microservicio (no hay dual-write para clientes).
 
 ---
 
@@ -12,19 +12,17 @@ Este servicio también gestiona la **tabla de clientes del CRM**, ya que los cli
 
 | Componente | Tecnología |
 |---|---|
-| Framework | FastAPI 0.110+ |
-| Lenguaje | Python 3.11+ |
+| Framework | FastAPI 0.135 |
+| Lenguaje | Python 3.13 |
 | ORM | SQLAlchemy 2.0 async |
 | Driver PostgreSQL | asyncpg |
 | Migraciones | Alembic |
 | Base de datos | PostgreSQL 15 (Docker local → AWS RDS en producción) |
-| Validación | Pydantic v2 |
+| Validación | Pydantic v2 + email-validator |
 | Documentación | FastAPI nativo (Swagger UI + ReDoc) |
-| HTTP Client | httpx (para llamadas futuras a otros servicios) |
 | Testing | pytest + pytest-asyncio + httpx AsyncClient |
 | Containerización | Docker + docker-compose |
 | Variables de entorno | pydantic-settings (BaseSettings) |
-| Hashing passwords | passlib + bcrypt |
 
 ---
 
@@ -35,50 +33,52 @@ src/
 ├── domain/                          # DOMINIO PURO — cero imports de frameworks
 │   ├── entities/
 │   │   ├── user.py                  # @dataclass User: id, email, full_name, role, is_active
-│   │   └── client.py                # @dataclass Client: id, full_name, email, phone, company, assigned_agent_id
+│   │   └── client.py                # @dataclass Client: id, company, email, phone, status
 │   ├── value_objects/
 │   │   ├── email.py                 # ValueObject Email con validación
 │   │   ├── user_role.py             # Enum: admin, soporte, comercial
-│   │   └── client_status.py         # Enum: activo, inactivo, prospecto
+│   │   └── client_status.py         # Enum: active, inactive
 │   ├── repositories/
 │   │   ├── user_repository.py       # ABC UserRepository
-│   │   └── client_repository.py     # ABC ClientRepository
-│   └── exceptions.py                # UserNotFoundError, EmailAlreadyExistsError, ClientNotFoundError
+│   │   └── client_repository.py     # ABC ClientRepository (get_by_id, get_by_email, list, create, update, soft_delete)
+│   └── exceptions.py                # UserNotFoundError, EmailAlreadyExistsError, ClientNotFoundError, ForbiddenError
 │
 ├── application/                     # CASOS DE USO — solo conoce el dominio
 │   ├── use_cases/
 │   │   ├── users/
 │   │   │   ├── get_user.py          # Buscar por ID
 │   │   │   ├── list_users.py        # Listar con filtros y paginación
-│   │   │   ├── create_user.py       # Crear + hashear password
+│   │   │   ├── create_user.py       # Crear usuario
 │   │   │   ├── update_user.py       # Actualizar perfil
 │   │   │   └── deactivate_user.py   # Soft delete (is_active=False)
 │   │   └── clients/
 │   │       ├── get_client.py
-│   │       ├── list_clients.py      # Filtros: estado, agente asignado, empresa
-│   │       ├── create_client.py
-│   │       ├── update_client.py
-│   │       └── assign_agent.py      # Asignar cliente a un agente
+│   │       ├── list_clients.py      # Filtro: status. Paginación: page, page_size
+│   │       ├── create_client.py     # Verifica email único → crea cliente
+│   │       ├── update_client.py     # Verifica email único si cambia → actualiza
+│   │       └── _soft_delete_client.py  # DELETE → status = 'inactive'
 │   └── dtos/
-│       ├── user_dto.py              # CreateUserDTO, UpdateUserDTO, UserResponseDTO
-│       └── client_dto.py            # CreateClientDTO, UpdateClientDTO, ClientResponseDTO
+│       ├── user_dto.py              # CreateUserDTO, UpdateUserDTO
+│       └── client_dto.py            # CreateClientDTO(company, email, phone, status), UpdateClientDTO(all optional)
 │
 ├── adapters/
 │   ├── inbound/
 │   │   └── http/
 │   │       ├── routers/
-│   │       │   ├── user_router.py   # /users endpoints
-│   │       │   └── client_router.py # /clients endpoints
+│   │       │   ├── user_router.py   # /users endpoints (5)
+│   │       │   └── client_router.py # /clients endpoints (5)
 │   │       ├── schemas/
 │   │       │   ├── user_schema.py   # Pydantic schemas request/response
-│   │       │   └── client_schema.py
-│   │       └── dependencies.py      # Extrae X-User-Id, X-User-Role de headers
+│   │       │   └── client_schema.py # CreateClientRequest, UpdateClientRequest, ClientResponse
+│   │       ├── dependencies.py      # Extrae X-User-Id, X-User-Role de headers
+│   │       ├── response_helpers.py  # success_response, paginated_response, error_response
+│   │       └── validators.py
 │   │
 │   └── outbound/
 │       └── persistence/
 │           ├── models/
 │           │   ├── user_model.py    # SQLAlchemy ORM Model users
-│           │   └── client_model.py  # SQLAlchemy ORM Model clients
+│           │   └── client_model.py  # SQLAlchemy ORM Model clients (company NOT NULL, status default 'active')
 │           ├── user_pg_repository.py    # Implementa UserRepository ABC
 │           └── client_pg_repository.py  # Implementa ClientRepository ABC
 │
@@ -87,7 +87,7 @@ src/
     │   ├── connection.py            # Engine async, SessionLocal, get_db dependency
     │   └── migrations/              # Alembic: env.py, versions/
     ├── logging/
-    │   └── setup.py                 # structlog JSON
+    │   └── setup.py
     └── di/
         └── container.py             # Ensambla use_cases con repositorios reales
 ```
@@ -116,23 +116,18 @@ CREATE TABLE users (
 
 ```sql
 CREATE TABLE clients (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    full_name         VARCHAR(255) NOT NULL,
-    email             VARCHAR(255) UNIQUE NOT NULL,
-    phone             VARCHAR(50),
-    company           VARCHAR(255),
-    status            VARCHAR(20) NOT NULL DEFAULT 'prospecto'
-                      CHECK (status IN ('activo','inactivo','prospecto')),
-    assigned_agent_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    notes             TEXT,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company      VARCHAR(255) NOT NULL,
+    email        VARCHAR(255) UNIQUE NOT NULL,
+    phone        VARCHAR(50),
+    status       VARCHAR(20) NOT NULL DEFAULT 'active'
+                 CHECK (status IN ('active','inactive')),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Índices de performance
-CREATE INDEX idx_clients_assigned_agent ON clients(assigned_agent_id);
 CREATE INDEX idx_clients_status ON clients(status);
-CREATE INDEX idx_clients_company ON clients(company);
 ```
 
 ---
@@ -153,13 +148,11 @@ CREATE INDEX idx_clients_company ON clients(company);
 
 | Método | Ruta | Descripción | Roles permitidos |
 |--------|------|-------------|-----------------|
-| GET | `/api/v1/clients/` | Listar clientes. Filtros: `status`, `assigned_agent_id`, `company`. Paginación | Todos |
-| POST | `/api/v1/clients/` | Crear cliente | admin, soporte |
+| GET | `/api/v1/clients/` | Listar clientes. Filtro: `status`. Paginación: `page`, `page_size` | Todos |
+| POST | `/api/v1/clients/` | Crear cliente. Campos requeridos: `company`, `email` | admin, soporte |
 | GET | `/api/v1/clients/{client_id}` | Obtener cliente por ID | Todos |
 | PUT | `/api/v1/clients/{client_id}` | Actualizar datos del cliente | admin, soporte |
-| DELETE | `/api/v1/clients/{client_id}` | Eliminar cliente (soft delete → status=inactivo) | admin |
-| PATCH | `/api/v1/clients/{client_id}/assign` | Asignar agente al cliente | admin |
-| GET | `/api/v1/clients/agent/{agent_id}` | Listar clientes asignados a un agente | Todos |
+| DELETE | `/api/v1/clients/{client_id}` | Eliminar cliente (soft delete → `status='inactive'`) | admin |
 
 ### Health
 
@@ -186,18 +179,26 @@ Mismo envelope que el Gateway:
   }
 }
 
-// Éxito — objeto único
+// Éxito — objeto único (ejemplo: cliente)
 {
   "success": true,
-  "data": { ... }
+  "data": {
+    "id": "a1b2c3d4-...",
+    "company": "Acme Corporation",
+    "email": "contacto@acme.com",
+    "phone": "+1-555-100-2000",
+    "status": "active",
+    "created_at": "2025-01-15T10:30:00Z",
+    "updated_at": "2025-01-15T10:30:00Z"
+  }
 }
 
 // Error
 {
   "success": false,
   "error": {
-    "code": "USER_NOT_FOUND",
-    "message": "No existe un usuario con ese ID"
+    "code": "CLIENT_NOT_FOUND",
+    "message": "No existe un cliente con ese ID"
   }
 }
 ```
@@ -400,32 +401,11 @@ Cada router y endpoint debe incluir:
 tests/
 ├── conftest.py                       # engine de test, sesión DB, fixtures de usuarios y clientes
 ├── unit/
-│   ├── test_create_user.py           # Mock del repository
-│   ├── test_list_clients.py          # Filtros y paginación
-│   └── test_assign_agent.py          # Asignación de agente a cliente
+│   ├── test_assign_agent.py          # 10 tests — Create/Update/SoftDelete use cases (mocks)
+│   └── test_list_clients.py          # 5 tests — ListClients use case (filtros y paginación)
 └── integration/
-    ├── test_user_endpoints.py        # CRUD completo de usuarios
-    └── test_client_endpoints.py      # CRUD completo de clientes
-```
-
-### Configuración de DB de test
-
-```python
-# tests/conftest.py
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-
-TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5433/crm_users_test"
-
-@pytest_asyncio.fixture(scope="session")
-async def test_engine():
-    engine = create_async_engine(TEST_DATABASE_URL)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    ├── test_user_endpoints.py        # 11 tests — CRUD completo de usuarios
+    └── test_client_endpoints.py      # 30 tests — CRUD completo de clientes, validaciones, paginación
 ```
 
 ### Casos de prueba obligatorios
@@ -442,13 +422,22 @@ async def test_engine():
 - ❌ Acceso sin headers internos → 422
 
 **Clientes:**
-- ✅ Crear cliente con datos válidos → 201
+- ✅ Crear cliente con datos válidos (company + email) → 201
 - ❌ Crear cliente con email duplicado → 409
-- ✅ Listar clientes filtrados por `status=activo`
-- ✅ Listar clientes por agente `agent_id`
-- ✅ Asignar agente a cliente → 200
-- ❌ Asignar agente inexistente → 404
-- ✅ Soft delete → `status=inactivo`
+- ❌ Crear cliente sin company → 422
+- ❌ Crear cliente sin email → 422
+- ❌ Crear cliente con email inválido → 422
+- ❌ Crear cliente con company vacía (< 2 chars) → 422
+- ❌ Crear cliente con status inválido → 422
+- ✅ Listar clientes filtrados por `status=active`
+- ✅ Listar con paginación `page=1&page_size=5`
+- ✅ Obtener cliente por ID → 200
+- ❌ Obtener cliente con ID inexistente → 404
+- ✅ Actualizar company de cliente → 200
+- ✅ Actualizar email de cliente → 200
+- ❌ Actualizar con email duplicado → 409
+- ✅ Soft delete → `status='inactive'`
+- ❌ Soft delete con ID inexistente → 404
 
 ---
 
@@ -469,18 +458,6 @@ async def list_users(
         return await use_case.execute(filters={"is_active": True})
     # Admin ve todo
     return await use_case.execute()
-
-
-@router.get("/clients/")
-async def list_clients(
-    context: UserContext = Depends(get_current_user_context),
-    use_case: ListClients = Depends(get_list_clients_use_case),
-):
-    if context.role == UserRole.COMERCIAL:
-        # Comercial solo ve sus clientes asignados
-        return await use_case.execute(filters={"assigned_agent_id": context.user_id})
-    # Admin y Soporte ven todos
-    return await use_case.execute()
 ```
 
 > **Regla:** autorización → Gateway. Filtrado de datos → microservicio.
@@ -489,7 +466,7 @@ async def list_clients(
 ## Paso a paso de implementación
 
 1. **Setup inicial**
-   - `pip install fastapi uvicorn sqlalchemy asyncpg alembic pydantic-settings passlib[bcrypt] pytest pytest-asyncio httpx structlog`
+   - `pip install fastapi uvicorn sqlalchemy asyncpg alembic pydantic-settings email-validator pytest pytest-asyncio httpx`
    - Crear estructura de carpetas
    - Configurar `config/settings.py` con BaseSettings
 
@@ -543,4 +520,4 @@ async def list_clients(
 - **`pool_pre_ping=True` es obligatorio** para compatibilidad con AWS RDS (que cierra conexiones idle).
 - **Alembic con async** requiere configuración especial en `env.py` usando `run_sync`. Asegúrate de usar el patrón correcto de migraciones async.
 - **No exponer este servicio directamente a Internet.** Solo debe recibir tráfico desde el Gateway (red Docker interna / VPC en AWS).
-- **Crear script de seed** para poblar usuarios iniciales sincronizados con el Gateway: mismos IDs, mismos roles.
+- **Crear script de seed** para poblar usuarios iniciales sincronizados con el Gateway: mismos IDs, mismos roles. Los clientes de ejemplo se crean desde Atenea con `python manage.py seed_clients`, que POSTea directamente a este servicio.
