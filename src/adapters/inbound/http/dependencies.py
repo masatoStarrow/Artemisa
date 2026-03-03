@@ -27,7 +27,7 @@ async def get_current_user_context(
         user_id = UUID(x_user_id)
     except (ValueError, TypeError):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "success": False,
                 "error": {
@@ -41,7 +41,7 @@ async def get_current_user_context(
         role = UserRole(x_user_role.lower())
     except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "success": False,
                 "error": {
