@@ -3,7 +3,7 @@ Use case: List clients with filters and pagination.
 """
 
 from src.domain.entities.client import Client
-from src.domain.repositories.client_repository import ClientRepository
+from src.domain.ports.client_repository import ClientRepository
 
 
 class ListClients:

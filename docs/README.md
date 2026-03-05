@@ -54,7 +54,27 @@ El **CRM Users Service** (nombre interno: Artemisa) es un microservicio responsa
 
 ## 2. Arquitectura del Proyecto
 
-Se usa **Arquitectura Hexagonal (Ports & Adapters)**. El dominio (lógica de negocio) es Python puro y no importa ningún framework. FastAPI, SQLAlchemy y Pydantic son detalles de implementación que viven en los adaptadores.
+Se usa **Clean Architecture** siguiendo los principios del [**scaffold de Bancolombia**](https://bancolombia.github.io/scaffold-clean-architecture/docs/intro), adaptados de Java/Gradle a Python/FastAPI. La idea central: el dominio (lógica de negocio) es Python puro y no importa ningún framework. FastAPI, SQLAlchemy y Pydantic son detalles de implementación que viven en los adaptadores.
+
+### ¿Por qué el scaffold de Bancolombia?
+
+1. **Regla de dependencia estricta:** las capas internas (dominio, aplicación) no conocen las externas. Si mañana cambiamos FastAPI por Flask, solo se reescriben los adaptadores.
+2. **Testabilidad:** los casos de uso se prueban con mocks puros — sin BD ni servidor HTTP.
+3. **Separación de responsabilidades:** cada capa tiene un contrato claro, facilitando la incorporación de nuevos desarrolladores.
+4. **Escalabilidad del equipo:** diferentes personas pueden trabajar en adaptadores, casos de uso y dominio sin conflictos.
+
+### Mapeo Bancolombia → Python
+
+| Capa Bancolombia | Módulo Bancolombia | Nuestro equivalente | Qué contiene |
+|---|---|---|---|
+| **Domain** | `model` | `src/domain/` | Entidades, value objects, puertos (ABCs), excepciones |
+| **Domain** | `usecase` | `src/application/` | Casos de uso (lógica de negocio) + DTOs |
+| **Infrastructure** | `entry-points` | `src/adapters/inbound/` | Routers FastAPI, schemas Pydantic |
+| **Infrastructure** | `driven-adapters` | `src/adapters/outbound/` | Repositorios PostgreSQL (SQLAlchemy) |
+| **Infrastructure** | `helpers` | `src/infrastructure/` | Conexión BD, DI, logging, migraciones |
+| **Application** | `app-service` | `main.py` + `config/` | Entry point, configuración |
+
+### Diagrama de capas
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -71,7 +91,7 @@ Se usa **Arquitectura Hexagonal (Ports & Adapters)**. El dominio (lógica de neg
 └──────────┬───────────────────────────────┬───────────────────┘
            │                               │
 ┌──────────▼──────────┐     ┌──────────────▼───────────────────┐
-│    DOMINIO (CORE)   │     │     ADAPTADORES OUTBOUND         │
+│    DOMINIO          │     │     ADAPTADORES OUTBOUND         │
 │  Entities:          │     │  UserPgRepository (SQLAlchemy)   │
 │   - User            │     │  ClientPgRepository (SQLAlchemy) │
 │   - Client          │     │                                  │
@@ -89,7 +109,6 @@ Se usa **Arquitectura Hexagonal (Ports & Adapters)**. El dominio (lógica de neg
 │   - ListClients     │
 │   - CreateClient    │
 │   - UpdateClient    │
-│   - AssignAgent     │
 │   - SoftDeleteClient│
 │  Ports (ABCs):      │
 │   - UserRepository  │
@@ -102,8 +121,8 @@ Se usa **Arquitectura Hexagonal (Ports & Adapters)**. El dominio (lógica de neg
 
 | Capa | Carpeta | Qué contiene | ¿Importa frameworks? |
 |---|---|---|---|
-| **Dominio (Core)** | `src/domain/` | Entidades (dataclasses), value objects (enums), excepciones, puertos (ABCs) | ❌ Solo Python puro |
-| **Aplicación** | `src/application/` | DTOs, casos de uso (orquestan domain + repos) | ❌ Solo Python puro |
+| **Dominio** | `src/domain/` | Entidades (dataclasses), value objects (enums), excepciones, puertos (ABCs) | ❌ Solo Python puro |
+| **Aplicación** | `src/application/` | DTOs, casos de uso (orquestan domain + ports) | ❌ Solo Python puro |
 | **Adaptadores** | `src/adapters/` | Routers FastAPI, schemas Pydantic, repositories SQLAlchemy | ✅ FastAPI, Pydantic, SQLAlchemy |
 | **Infraestructura** | `src/infrastructure/` | Conexión BD, Alembic, DI container, logging, seed | ✅ SQLAlchemy, structlog, Alembic |
 
@@ -559,7 +578,7 @@ Todas heredan de `DomainError(code, message)`:
 | `EmailAlreadyExistsError` | `EMAIL_ALREADY_EXISTS` | "Ya existe un registro con ese email" | 409 |
 | `ForbiddenError` | `FORBIDDEN` | "No tiene permisos para esta acción" | 403 |
 
-### Puertos (Repositories — ABCs)
+### Puertos (Ports — ABCs)
 
 Los puertos definen los contratos de acceso a datos. Son **clases abstractas** que el dominio define y los adaptadores outbound implementan.
 
@@ -611,8 +630,7 @@ Cada caso de uso es una clase con un método `execute()`. Recibe el repository p
 | `ListClients` | `src/application/use_cases/clients/list_clients.py` | Lista clientes con filtros opcionales (`status`, `assigned_agent_id`, `company`) y paginación. El filtro `company` es búsqueda parcial case-insensitive (ILIKE). |
 | `CreateClient` | `src/application/use_cases/clients/create_client.py` | Valida que el email no exista, genera UUID, normaliza email. Lanza `EmailAlreadyExistsError` si el email ya existe. |
 | `UpdateClient` | `src/application/use_cases/clients/update_client.py` | Actualiza campos del cliente. Si se cambia el email, verifica que no exista otro cliente con ese email. Lanza `ClientNotFoundError` o `EmailAlreadyExistsError`. |
-| `AssignAgent` | `src/application/use_cases/clients/assign_agent.py` | Asigna un agente (usuario) a un cliente. Verifica que **ambos existan** antes de asignar. Lanza `UserNotFoundError` si el agente no existe o `ClientNotFoundError` si el cliente no existe. |
-| `SoftDeleteClient` | `src/application/use_cases/clients/_soft_delete_client.py` | Cambia el status del cliente a `"inactivo"`. Lanza `ClientNotFoundError` si no existe. |
+| `SoftDeleteClient` | `src/application/use_cases/clients/_soft_delete_client.py` | Cambia el status del cliente a `"inactive"`. Lanza `ClientNotFoundError` si no existe. |
 
 ### DTOs (Data Transfer Objects)
 
@@ -1050,7 +1068,7 @@ Artemisa/
 │   │   │   ├── user_role.py                         # Enum: admin, soporte, comercial
 │   │   │   └── client_status.py                     # Enum: activo, inactivo, prospecto
 │   │   ├── exceptions.py                            # DomainError, UserNotFound, ClientNotFound, etc.
-│   │   └── repositories/
+│   │   └── ports/
 │   │       ├── user_repository.py                   # ABC: contrato de acceso a datos de usuarios
 │   │       └── client_repository.py                 # ABC: contrato de acceso a datos de clientes
 │   │
@@ -1070,8 +1088,7 @@ Artemisa/
 │   │           ├── list_clients.py                  # ListClients: filtros + paginación
 │   │           ├── create_client.py                 # CreateClient: validar email, generar UUID
 │   │           ├── update_client.py                 # UpdateClient: actualizar campos parciales
-│   │           ├── assign_agent.py                  # AssignAgent: asignar usuario a cliente
-│   │           └── _soft_delete_client.py           # SoftDeleteClient: status → inactivo
+│   │           └── _soft_delete_client.py           # SoftDeleteClient: status → inactive
 │   │
 │   ├── adapters/                                    # ── CAPA ADAPTADORES ──
 │   │   ├── inbound/
@@ -1136,11 +1153,8 @@ El archivo `src/infrastructure/di/container.py` contiene **funciones factory** q
 def get_create_user_use_case(db: AsyncSession) -> CreateUser:
     return CreateUser(user_repository=UserPgRepository(db))
 
-def get_assign_agent_use_case(db: AsyncSession) -> AssignAgent:
-    return AssignAgent(
-        client_repository=ClientPgRepository(db),
-        user_repository=UserPgRepository(db),
-    )
+def get_soft_delete_client_use_case(db: AsyncSession) -> SoftDeleteClient:
+    return SoftDeleteClient(client_repository=ClientPgRepository(db))
 ```
 
 Cada router usa estas factories para obtener los casos de uso:
