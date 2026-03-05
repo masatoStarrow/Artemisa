@@ -7,7 +7,7 @@ from uuid import UUID
 from src.application.dtos.client_dto import UpdateClientDTO
 from src.domain.entities.client import Client
 from src.domain.exceptions import ClientNotFoundError, EmailAlreadyExistsError
-from src.domain.repositories.client_repository import ClientRepository
+from src.domain.ports.client_repository import ClientRepository
 
 
 class UpdateClient:

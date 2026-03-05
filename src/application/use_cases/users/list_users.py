@@ -3,7 +3,7 @@ Use case: List users with filters and pagination.
 """
 
 from src.domain.entities.user import User
-from src.domain.repositories.user_repository import UserRepository
+from src.domain.ports.user_repository import UserRepository
 
 
 class ListUsers:

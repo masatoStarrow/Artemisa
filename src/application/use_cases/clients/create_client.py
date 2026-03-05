@@ -7,7 +7,7 @@ import uuid
 from src.application.dtos.client_dto import CreateClientDTO
 from src.domain.entities.client import Client
 from src.domain.exceptions import EmailAlreadyExistsError
-from src.domain.repositories.client_repository import ClientRepository
+from src.domain.ports.client_repository import ClientRepository
 
 
 class CreateClient:

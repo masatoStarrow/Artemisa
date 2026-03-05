@@ -6,7 +6,7 @@ from uuid import UUID
 
 from src.domain.entities.client import Client
 from src.domain.exceptions import ClientNotFoundError
-from src.domain.repositories.client_repository import ClientRepository
+from src.domain.ports.client_repository import ClientRepository
 
 
 class GetClient:
